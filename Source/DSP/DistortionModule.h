@@ -31,6 +31,9 @@ private:
     juce::AudioBuffer<float> delayedDry;
     std::vector<std::vector<float>> dryHistory;
     std::array<float, 2> highPassLowState {};
+    std::array<float, 2> preBassState {};
+    std::array<float, 2> preMidState {};
+    std::array<float, 2> postMidState {};
     std::array<float, 2> lowPassState {};
     std::array<float, 2> dcInputState {};
     std::array<float, 2> dcOutputState {};

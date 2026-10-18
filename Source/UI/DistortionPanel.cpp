@@ -32,13 +32,14 @@ void ParamDial::resized()
 }
 
 DistortionPanel::DistortionPanel (juce::AudioProcessorValueTreeState& parameters)
-    : drive (parameters, "dist.drive", "Drive", "Input boost before clipping: 0 to +48 dB."),
-      tight (parameters, "dist.tight", "Tight", "Pre-distortion high-pass: cut sub-bass before saturation (35 to 350 Hz)."),
-      tone (parameters, "dist.tone", "Tone", "Post-distortion low-pass: reduce fizz above this frequency."),
-      wetMix (parameters, "dist.mix", "Mix", "Blend processed and latency-aligned clean audio (0 to 100%)."),
-      output (parameters, "dist.output", "Output", "Post-effect trim: match loudness, protect your next processor.")
+    : drive (parameters, "dist.drive", "Drive", "Boost before clipping (0 to 48 dB). Start around 8-18 dB: 48 dB slams every voicing."),
+      tight (parameters, "dist.tight", "Tight", "Additional low-end cut before gain. Each voicing also has a built-in high pass."),
+      tone (parameters, "dist.tone", "Tone", "Additional treble roll-off after distortion."),
+      wetMix (parameters, "dist.mix", "Mix", "Blend processed and aligned unprocessed signal."),
+      output (parameters, "dist.output", "Output", "Post-distortion output level. Lower it to avoid clipping the next module.")
 {
-    character.addItemList ({"Warm", "Hard", "Razor", "Obliterate"}, 1);
+    character.addItemList ({"Raw Black Metal", "Swedish Chainsaw", "Old-School Heavy",
+                            "Modern Death Metal", "Modern Metalcore"}, 1);
     characterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         parameters, "dist.mode", character);
     character.setColour (juce::ComboBox::textColourId, Palette::ink());
@@ -55,7 +56,6 @@ DistortionPanel::DistortionPanel (juce::AudioProcessorValueTreeState& parameters
 
     for (auto* dial : {&drive, &tight, &tone, &wetMix, &output})
         addAndMakeVisible (*dial);
-
     updateCharacterDescription();
 }
 
@@ -63,11 +63,12 @@ void DistortionPanel::updateCharacterDescription()
 {
     switch (character.getSelectedId())
     {
-        case 1: characterDescription.setText ("Rounded saturation  /  lighter texture", juce::dontSendNotification); break;
-        case 2: characterDescription.setText ("Hard clipping  /  raw crunch", juce::dontSendNotification); break;
-        case 3: characterDescription.setText ("Uneven clipping  /  sharp harmonics", juce::dontSendNotification); break;
-        case 4: characterDescription.setText ("High-density saturation  /  maximum filth", juce::dontSendNotification); break;
-        default: characterDescription.setText ("Pick your flavor of damage", juce::dontSendNotification); break;
+        case 1: characterDescription.setText ("Abrasive upper mids  /  raw and cold", juce::dontSendNotification); break;
+        case 2: characterDescription.setText ("HM-2-inspired midrange grind  /  chainsaw", juce::dontSendNotification); break;
+        case 3: characterDescription.setText ("Open crunch  /  pick-sensitive grit", juce::dontSendNotification); break;
+        case 4: characterDescription.setText ("Dense attack  /  classic death-metal weight", juce::dontSendNotification); break;
+        case 5: characterDescription.setText ("Precise, tightly filtered modern gain", juce::dontSendNotification); break;
+        default: characterDescription.setText ("Select a metal voicing", juce::dontSendNotification); break;
     }
 }
 
@@ -75,28 +76,27 @@ void DistortionPanel::paint (juce::Graphics& g)
 {
     g.setColour (Palette::muted());
     g.setFont (12.5f);
-    g.drawText ("CHARACTER", 2, 9, 95, 32, juce::Justification::centredLeft);
+    g.drawText ("VOICING", 2, 9, 95, 32, juce::Justification::centredLeft);
     g.setColour (Palette::outline());
     g.drawHorizontalLine (58, 0.0f, static_cast<float> (getWidth()));
-
-    const auto y = getHeight() - 25;
     g.setColour (Palette::muted());
     g.setFont (12.0f);
-    g.drawFittedText ("SIGNAL  >  PRE-HIGH-PASS  >  CLIPPER (4x)  >  DC FILTER  >  LOW-PASS  >  MIX / OUTPUT",
-                      2, y, getWidth() - 4, 20, juce::Justification::centred, 1);
+    g.drawFittedText ("SIGNAL  >  PRE-EQ  >  MULTISTAGE CLIPPER (4x)  >  POST-EQ  >  MIX / OUTPUT",
+                      2, getHeight() - 25, getWidth() - 4, 20,
+                      juce::Justification::centred, 1);
 }
 
 void DistortionPanel::resized()
 {
-    character.setBounds (106, 7, juce::jmin (240, getWidth() / 3), 36);
+    character.setBounds (106, 7, juce::jmin (260, getWidth() / 3), 36);
     characterDescription.setBounds (character.getRight() + 17, 7,
                                     juce::jmax (50, getWidth() - character.getRight() - 20), 36);
     const auto top = 65;
-    const auto dialHeight = juce::jmax (148, getHeight() - top - 30);
+    const auto dialHeight = juce::jmax (140, getHeight() - top - 30);
     const auto dialWidth = getWidth() / 5;
     std::array<ParamDial*, 5> dials {&drive, &tight, &tone, &wetMix, &output};
     for (int i = 0; i < 5; ++i)
         dials[static_cast<size_t> (i)]->setBounds (i * dialWidth, top,
-                     i == 4 ? getWidth() - (i * dialWidth) : dialWidth, dialHeight);
+                    i == 4 ? getWidth() - (i * dialWidth) : dialWidth, dialHeight);
 }
 }
