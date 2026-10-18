@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "Presets/FactoryPresets.h"
 #include "DSP/EffectRack.h"
 #include "DSP/DistortionModule.h"
 #include "DSP/CabinetModule.h"
@@ -14,7 +15,6 @@ public:
     void releaseResources() override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
     const juce::String getName() const override { return JucePlugin_Name; }
@@ -32,12 +32,16 @@ public:
 
     bool loadCustomCabinetIR (const juce::File& file);
     juce::String getCustomCabinetName() const;
+    void applyFactoryPreset (int index);
+    int getSelectedFactoryPreset() const noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void setRealParameter (const juce::String& id, float value);
+
     ironvein::EffectRack rack;
-    ironvein::CabinetModule* cabinet = nullptr; // Owned by rack, stable for processor lifetime.
+    ironvein::CabinetModule* cabinet = nullptr;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IronveinAudioProcessor)
 };

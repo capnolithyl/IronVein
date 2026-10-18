@@ -1,6 +1,6 @@
 #pragma once
 #include "EffectModule.h"
-#include "Waveshaper.h"
+#include "AmpVoices.h"
 #include <array>
 #include <memory>
 #include <vector>
@@ -15,7 +15,6 @@ public:
     void reset() override;
     void process (juce::AudioBuffer<float>& audio) override;
     int getLatencySamples() const noexcept override { return latencySamples; }
-
     static constexpr int oversamplingFactor = 4;
 
 private:
@@ -26,25 +25,20 @@ private:
     std::atomic<float>* toneParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
+    std::atomic<float>* macroGain = nullptr;
+    std::atomic<float>* macroTight = nullptr;
+    std::atomic<float>* macroBright = nullptr;
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     juce::AudioBuffer<float> delayedDry;
     std::vector<std::vector<float>> dryHistory;
-    std::array<float, 2> highPassLowState {};
-    std::array<float, 2> preBassState {};
-    std::array<float, 2> preMidState {};
-    std::array<float, 2> postMidState {};
-    std::array<float, 2> lowPassState {};
-    std::array<float, 2> dcInputState {};
-    std::array<float, 2> dcOutputState {};
-    juce::SmoothedValue<float> driveGain;
-    juce::SmoothedValue<float> outputGain;
-    juce::SmoothedValue<float> mix;
-    juce::SmoothedValue<float> moduleOn;
+    std::array<amp::State, 2> engineState;
+    juce::SmoothedValue<float> driveGain, outputGain, mix, moduleOn;
     double currentSampleRate = 44100.0;
     int maxBlock = 512;
     int channelCount = 2;
     int latencySamples = 0;
     int dryWriteIndex = 0;
+    int lastMode = -1;
 };
 }
