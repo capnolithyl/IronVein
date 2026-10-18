@@ -16,7 +16,6 @@ ParamDial::ParamDial (juce::AudioProcessorValueTreeState& parameters,
     knob.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.setColour (juce::Slider::textBoxHighlightColourId, Palette::accent());
     knob.setTooltip (explanation);
-    setTooltip (explanation);
 }
 
 void ParamDial::paint (juce::Graphics& g)
@@ -51,7 +50,7 @@ DistortionPanel::DistortionPanel (juce::AudioProcessorValueTreeState& parameters
 
     characterDescription.setColour (juce::Label::textColourId, Palette::muted());
     characterDescription.setJustificationType (juce::Justification::centredLeft);
-    characterDescription.setFont (juce::Font (13.0f));
+    characterDescription.setFont (juce::Font (juce::FontOptions (13.0f)));
     addAndMakeVisible (characterDescription);
 
     for (auto* dial : {&drive, &tight, &tone, &wetMix, &output})
