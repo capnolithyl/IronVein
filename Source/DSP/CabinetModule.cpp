@@ -73,6 +73,7 @@ void CabinetModule::handleAsyncUpdate()
 
 void CabinetModule::loadSelection (int index)
 {
+    const auto requestedIndex = index;
     if (index == 4)
     {
         auto path = state.state.getProperty ("cab.customIrPath").toString();
@@ -94,7 +95,9 @@ void CabinetModule::loadSelection (int index)
                                      juce::dsp::Convolution::Stereo::no,
                                      juce::dsp::Convolution::Trim::yes, 0,
                                      juce::dsp::Convolution::Normalise::yes);
-    loadedSelection.store (index);
+    // If a saved custom path has disappeared, use a bundled cabinet without
+    // continuously retrying the missing file on every audio callback.
+    loadedSelection.store (requestedIndex);
 }
 
 void CabinetModule::process (juce::AudioBuffer<float>& audio)
