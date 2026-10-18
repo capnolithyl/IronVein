@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Ironvein VERSION 0.2.0 LANGUAGES C CXX)
+project(Ironvein VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +23,7 @@ juce_add_plugin(Ironvein
   PLUGIN_MANUFACTURER_CODE Irvn
   PLUGIN_CODE Iv01
   PRODUCT_NAME "IRONVEIN"
-  VERSION 0.2.0
+  VERSION 0.3.0
   FORMATS VST3 Standalone
   VST3_CATEGORIES Fx
   IS_SYNTH FALSE
@@ -41,6 +41,8 @@ target_sources(Ironvein PRIVATE
   Source/PluginEditor.cpp
   Source/DSP/EffectModule.h
   Source/DSP/EffectRack.h
+  Source/Presets/FactoryPresets.h
+  Source/DSP/AmpVoices.h
   Source/DSP/Waveshaper.h
   Source/DSP/DistortionModule.h
   Source/DSP/DistortionModule.cpp
@@ -53,7 +55,9 @@ target_sources(Ironvein PRIVATE
   Source/UI/DistortionPanel.h
   Source/UI/DistortionPanel.cpp
   Source/UI/CabinetPanel.h
-  Source/UI/CabinetPanel.cpp)
+  Source/UI/CabinetPanel.cpp
+  Source/UI/PresetPanel.h
+  Source/UI/PresetPanel.cpp)
 
 target_compile_definitions(Ironvein PUBLIC
   JUCE_WEB_BROWSER=0
@@ -75,4 +79,7 @@ if(BUILD_TESTING)
   add_executable(ironvein_waveshaper_tests tests/waveshaper_tests.cpp)
   target_compile_features(ironvein_waveshaper_tests PRIVATE cxx_std_17)
   add_test(NAME waveshaper_modes COMMAND ironvein_waveshaper_tests)
+  add_executable(ironvein_voice_models_tests tests/voice_models_tests.cpp)
+  target_compile_features(ironvein_voice_models_tests PRIVATE cxx_std_17)
+  add_test(NAME voice_architectures COMMAND ironvein_voice_models_tests)
 endif()

@@ -3,41 +3,6 @@
 
 namespace ironvein
 {
-namespace
-{
-struct Voicing
-{
-    float highPassHz;
-    float preBassHz;
-    float preMidHz;
-    float preBassAmount;
-    float midAmount;
-    float trebleAmount;
-    float postHighCutHz;
-    float postMidAmount;
-    float gainTrim;
-};
-
-constexpr Voicing voicings[] =
-{
-    // Raw black: fizzy treble emphasis, intentionally light bass.
-    { 300.0f, 420.0f, 2600.0f, -0.65f, 0.10f, 0.68f, 11800.0f, -0.18f, 0.54f },
-    // Swedish chainsaw: biting high mids and nasty dual-band emphasis.
-    {  90.0f, 490.0f, 2800.0f, -0.26f, 1.65f, 0.42f, 8500.0f, 0.55f, 0.43f },
-    // Old-school: open, forward low mids and less fizz.
-    {  65.0f, 550.0f, 2000.0f, 0.68f, 0.30f, -0.10f, 6200.0f, 0.10f, 0.77f },
-    // Death: focused attack, dense gain, controlled low end.
-    { 135.0f, 500.0f, 3200.0f, -0.15f, 0.85f, 0.24f, 7800.0f, 0.28f, 0.51f },
-    // Metalcore: tight pre-high-pass and bright attack, smoother after cab.
-    { 175.0f, 630.0f, 3900.0f, -0.35f, 0.52f, 0.80f, 7200.0f, 0.12f, 0.43f }
-};
-
-float coeff (double hz, double sr) noexcept
-{
-    return static_cast<float> (1.0 - std::exp (-juce::MathConstants<double>::twoPi * hz / sr));
-}
-}
-
 DistortionModule::DistortionModule (juce::AudioProcessorValueTreeState& state)
     : enabledParam (state.getRawParameterValue ("dist.enabled")),
       modeParam (state.getRawParameterValue ("dist.mode")),
@@ -45,10 +10,13 @@ DistortionModule::DistortionModule (juce::AudioProcessorValueTreeState& state)
       tightParam (state.getRawParameterValue ("dist.tight")),
       toneParam (state.getRawParameterValue ("dist.tone")),
       mixParam (state.getRawParameterValue ("dist.mix")),
-      outputParam (state.getRawParameterValue ("dist.output"))
+      outputParam (state.getRawParameterValue ("dist.output")),
+      macroGain (state.getRawParameterValue ("macro.gain")),
+      macroTight (state.getRawParameterValue ("macro.tight")),
+      macroBright (state.getRawParameterValue ("macro.bright"))
 {
-    jassert (enabledParam && modeParam && driveParam && tightParam && toneParam
-             && mixParam && outputParam);
+    jassert (enabledParam && modeParam && driveParam && tightParam && toneParam &&
+             mixParam && outputParam && macroGain && macroTight && macroBright);
 }
 
 void DistortionModule::prepare (double sampleRate, int maximumBlockSize, int channels)
@@ -65,11 +33,9 @@ void DistortionModule::prepare (double sampleRate, int maximumBlockSize, int cha
     delayedDry.setSize (channelCount, maxBlock, false, false, true);
     dryHistory.assign (static_cast<size_t> (channelCount),
                        std::vector<float> (static_cast<size_t> (latencySamples), 0.0f));
-    dryWriteIndex = 0;
-
-    driveGain.reset (sampleRate * oversamplingFactor, 0.02);
+    driveGain.reset (sampleRate * oversamplingFactor, 0.025);
     driveGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (driveParam->load()));
-    outputGain.reset (sampleRate, 0.025);
+    outputGain.reset (sampleRate, 0.035);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
     mix.reset (sampleRate, 0.02);
     mix.setCurrentAndTargetValue (mixParam->load() * 0.01f);
@@ -84,44 +50,49 @@ void DistortionModule::reset()
         oversampling->reset();
     for (auto& channel : dryHistory)
         std::fill (channel.begin(), channel.end(), 0.0f);
-    highPassLowState.fill (0.0f);
-    preBassState.fill (0.0f);
-    preMidState.fill (0.0f);
-    postMidState.fill (0.0f);
-    lowPassState.fill (0.0f);
-    dcInputState.fill (0.0f);
-    dcOutputState.fill (0.0f);
+    for (auto& state : engineState)
+        state = {};
     dryWriteIndex = 0;
+    lastMode = -1;
 }
 
 void DistortionModule::process (juce::AudioBuffer<float>& audio)
 {
-    if (oversampling == nullptr)
+    if (oversampling == nullptr || audio.getNumSamples() == 0)
         return;
-
     const auto channels = juce::jmin (audio.getNumChannels(), channelCount);
-    if (channels <= 0 || audio.getNumSamples() == 0)
+    if (channels == 0)
         return;
 
     const auto mode = juce::jlimit (0, 4, juce::roundToInt (modeParam->load()));
-    const auto& voice = voicings[mode];
-    const auto sampleRateOS = currentSampleRate * oversamplingFactor;
-    const auto hpCoefficient = coeff (juce::jmax (voice.highPassHz, tightParam->load()), sampleRateOS);
-    const auto bassCoefficient = coeff (voice.preBassHz, sampleRateOS);
-    const auto midCoefficient = coeff (voice.preMidHz, sampleRateOS);
-    const auto postCoefficient = coeff (1400.0, sampleRateOS);
-    const auto lpCoefficient = coeff (juce::jmin (voice.postHighCutHz, toneParam->load()), sampleRateOS);
-    const auto dcPole = static_cast<float> (std::exp (-juce::MathConstants<double>::twoPi * 15.0 / sampleRateOS));
+    // Coefficients are computed once per audio block, not per sample.
+    const float gainOffset = 0.12f * macroGain->load(); // +/-12 dB
+    const float tightOffset = 0.85f * macroTight->load(); // +/-85 Hz
+    const float bright = macroBright->load();
+    const float highCut = juce::jlimit (1800.0f, 16000.0f,
+                                        toneParam->load() * std::pow (2.0f, bright / 110.0f));
+    const auto c = amp::makeCoefficients (
+        mode, juce::jlimit (35.0f, 350.0f, tightParam->load() + tightOffset),
+        highCut, static_cast<float> (currentSampleRate * oversamplingFactor));
 
-    driveGain.setTargetValue (juce::Decibels::decibelsToGain (driveParam->load()));
+    if (mode != lastMode)
+    {
+        // Avoid dragging old filter/envelope states between completely different circuits.
+        for (auto& state : engineState)
+            state = {};
+        lastMode = mode;
+    }
+
+    driveGain.setTargetValue (juce::Decibels::decibelsToGain (
+        juce::jlimit (0.0f, 48.0f, driveParam->load() + gainOffset)));
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
     mix.setTargetValue (mixParam->load() * 0.01f);
     moduleOn.setTargetValue (enabledParam->load() > 0.5f ? 1.0f : 0.0f);
 
     for (int offset = 0; offset < audio.getNumSamples(); offset += maxBlock)
     {
-        const auto numSamples = juce::jmin (maxBlock, audio.getNumSamples() - offset);
-        for (int n = 0; n < numSamples; ++n)
+        const auto count = juce::jmin (maxBlock, audio.getNumSamples() - offset);
+        for (int n = 0; n < count; ++n)
         {
             for (int ch = 0; ch < channels; ++ch)
             {
@@ -138,53 +109,23 @@ void DistortionModule::process (juce::AudioBuffer<float>& audio)
                 dryWriteIndex = 0;
         }
 
-        auto wetBlock = juce::dsp::AudioBlock<float> (audio)
-                            .getSubBlock (static_cast<size_t> (offset), static_cast<size_t> (numSamples));
-        auto upsampled = oversampling->processSamplesUp (wetBlock);
-        const auto upsampledSamples = static_cast<int> (upsampled.getNumSamples());
-
-        for (int n = 0; n < upsampledSamples; ++n)
+        auto wet = juce::dsp::AudioBlock<float> (audio)
+                       .getSubBlock (static_cast<size_t> (offset), static_cast<size_t> (count));
+        auto upsampled = oversampling->processSamplesUp (wet);
+        for (size_t n = 0; n < upsampled.getNumSamples(); ++n)
         {
-            const auto inputGain = driveGain.getNextValue();
+            const auto gain = driveGain.getNextValue();
             for (int ch = 0; ch < channels; ++ch)
             {
                 const auto i = static_cast<size_t> (ch);
-                const auto x = upsampled.getSample (i, static_cast<size_t> (n));
-                auto& hp = highPassLowState[i];
-                hp += hpCoefficient * (x - hp);
-                const auto highPassed = x - hp;
-
-                auto& bassLow = preBassState[i];
-                auto& midLow = preMidState[i];
-                bassLow += bassCoefficient * (highPassed - bassLow);
-                midLow += midCoefficient * (highPassed - midLow);
-                const auto midBand = midLow - bassLow;
-                const auto treble = highPassed - midLow;
-
-                const auto preEmphasis = highPassed
-                                       + voice.preBassAmount * bassLow
-                                       + voice.midAmount * midBand
-                                       + voice.trebleAmount * treble;
-
-                auto shaped = shapeSample (inputGain * preEmphasis, mode);
-                auto& dcIn = dcInputState[i];
-                auto& dcOut = dcOutputState[i];
-                const auto dcFiltered = shaped - dcIn + dcPole * dcOut;
-                dcIn = shaped;
-                dcOut = dcFiltered;
-
-                auto& postMid = postMidState[i];
-                postMid += postCoefficient * (dcFiltered - postMid);
-                const auto boosted = dcFiltered + voice.postMidAmount * (dcFiltered - postMid);
-
-                auto& lp = lowPassState[i];
-                lp += lpCoefficient * (boosted - lp);
-                upsampled.setSample (i, static_cast<size_t> (n), voice.gainTrim * lp);
+                const float x = upsampled.getSample (i, n);
+                const auto result = amp::process (mode, x * gain, engineState[i], c);
+                upsampled.setSample (i, n, result);
             }
         }
+        oversampling->processSamplesDown (wet);
 
-        oversampling->processSamplesDown (wetBlock);
-        for (int n = 0; n < numSamples; ++n)
+        for (int n = 0; n < count; ++n)
         {
             const auto wetAmount = mix.getNextValue();
             const auto gain = outputGain.getNextValue();
@@ -192,9 +133,9 @@ void DistortionModule::process (juce::AudioBuffer<float>& audio)
             for (int ch = 0; ch < channels; ++ch)
             {
                 const auto dry = delayedDry.getSample (ch, n);
-                const auto wet = audio.getSample (ch, offset + n);
-                const auto processed = ((1.0f - wetAmount) * dry + wetAmount * wet) * gain;
-                audio.setSample (ch, offset + n, dry + active * (processed - dry));
+                const auto distorted = audio.getSample (ch, offset + n);
+                const auto blended = ((1.0f - wetAmount) * dry + wetAmount * distorted) * gain;
+                audio.setSample (ch, offset + n, dry + active * (blended - dry));
             }
         }
     }
