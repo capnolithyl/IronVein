@@ -1,57 +1,80 @@
-# IRONVEIN | Modular FX Rack
+# IRONVEIN | Modular Metal FX Rack
 
-**IRONVEIN v0.1** is a metal-focused audio effect insert for mono/stereo mixer tracks and buses, written in C++ and JUCE 8. It builds as a **Windows x64 VST3** and a **standalone desktop application**. No build tools are needed on your computer when using the GitHub Actions output.
+**v0.2 alpha** | JUCE 8 | VST3 + Windows standalone
 
-> Experimental alpha. The numerical waveshaper tests are included; do not treat a successful compile as a substitute for DAW validation or listening tests.
+A metal-oriented guitar distortion processor with five original digital
+voicings and a separate convolution cabinet IR module. Designed to grow into
+an insertable suite for guitar tracks and, with cab simulation bypassed, buses.
 
-## Easiest installation (Windows)
+## Install (Windows)
 
-1. Open this repository's **Actions** tab, then click the latest successful **Build Windows VST3** run (on main or an approved PR).
-2. Under **Artifacts**, download **IRONVEIN-Windows-x64** and extract it.
-3. Copy the **entire** `VST3/IRONVEIN.vst3` directory into `C:\Program Files\Common Files\VST3\`.
-4. Restart or rescan VST3 plug-ins in your DAW, then insert **IRONVEIN** on a track or bus.
+1. Open the latest **successful** `Build Windows VST3` workflow in **Actions**.
+2. Download its **IRONVEIN-Windows-x64** artifact and extract it.
+3. For a DAW, copy the entire `VST3/IRONVEIN.vst3` directory to
+   `C:\Program Files\Common Files\VST3\` and rescan plug-ins.
+4. Or run `Standalone/IRONVEIN.exe` for direct guitar playing.
 
-You can also run `Standalone/IRONVEIN.exe` to test without a DAW. GitHub artifacts expire after 30 days; stable builds can be published separately as Releases later.
+### Fixing crackling and live guitar latency (Focusrite)
 
-## Features
+The standalone **v0.2 build enables native ASIO** (`JUCE_ASIO=1`). In the
+standalone's **Options > Audio/MIDI Settings** menu, select **ASIO** as device
+type, then **Focusrite USB ASIO** (requires the Focusrite manufacturer's
+Windows ASIO driver). Try 48 kHz and 128 or 256 samples, then increase to
+512 if you hear dropouts. Hardware monitoring, monitoring via DAW, and
+Windows shared audio may sound doubled or delayed; disable direct-monitor
+when listening to the effect only. Start with low volume and drive ~10 dB.
 
-- Reusable module card with bypass and editable effect controls; first installed module is **Distortion**.
-- Four modes: **Warm** (saturation), **Hard** (clipping), **Razor** (asymmetric texture) and **Obliterate** (extreme saturation).
-- Drive (+0–48 dB), Tight pre-high-pass (35–350 Hz), Tone post-low-pass (1.8–16 kHz), Mix (0–100%) and Output (-30 to +12 dB).
-- Four-times oversampled processing, DC rejection, delayed dry path, smoothed adjustments and reported latency.
-- Automatable DAW parameters and session state; mono/stereo audio.
+In the v0.1 screenshots the available Windows Audio setting at 44.1 kHz,
+441 samples shows a **10 ms nominal audio buffer**, not total round-trip
+latency. If ASIO isn't available yet, try Windows Audio (Low Latency Mode).
+These changes cannot correct all Focusrite/USB/driver configuration issues.
 
-The GUI currently has *one* functional card. Adding, deleting, and reordering multiple modules is future work, not a v0.1 feature. The algorithms here are waveshapers, **not** guitar amp or cabinet emulation. For DI guitar, use an amp/cab sim or IR loader after distortion. Exercise caution on the master bus because there is no limiter yet.
+## Effects
+
+### Module 1: Distortion
+
+- **Raw Black Metal**: sharp, brittle distortion with pre-emphasised treble.
+- **Swedish Chainsaw**: deliberately exaggerated high-midrange grind;
+  *HM-2 inspired*, not circuit-perfect modelling.
+- **Old-School Heavy**: softer, dynamic clipping and pronounced low mids.
+- **Modern Death Metal**: cascaded saturation, punchy upper mids and bass cut.
+- **Modern Metalcore**: intense, tight filtering and sharply defined attack.
+
+All five use genuinely different nonlinear transfer functions and pre/post EQ
+profiles. **Drive is 0–48 dB**: 48 dB will saturate almost anything and make
+all modes sound similar. Start at **6–18 dB**, then compare at matched output.
+Controls: Drive, Tight, Tone, Mix, Output. Distortion remains 4x oversampled.
+
+### Module 2: Cabinet IR
+
+- Four *real audio data* bundled CC0 cabinet impulse responses: 1x12 Open,
+  2x12 Closed, 4x12 Straight, 4x12 Slant.
+- Browse and load your own **mono or stereo WAV IR**, max 32 MB (processed
+  as mono IR by default); selection and custom file path are saved in the session.
+- Convolution internally resamples IRs to the host's current sample rate.
+- Bypass individually for non-guitar tracks; **cabinet simulation is not a
+  general-purpose mastering effect.**
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for cabinet sources and
+license details. Cab and distortion are individual rack DSP modules and UI cards.
+
+### Important caveats
+
+This is an **experimental alpha** and neither a physically accurate guitar
+amp/circuit simulation nor a substitute for a dedicated tube amp model. No
+noise gate, limiter, input/output meters, full dynamic rack editor or loadable
+factory presets yet. These are planned improvements. Distortion character
+changes are not crossfaded; avoid switching modes during critical takes.
+A saved custom IR path can become invalid if the WAV is moved.
 
 ## Build from source
 
-Requirements: Visual Studio 2022 with Desktop development with C++, Windows SDK, CMake, Git.
+Install Visual Studio 2022 C++ Desktop tools, CMake, and Git, then run
+`build-windows.bat`. The build fetches pinned JUCE 8.0.16-security; Windows
+builds enable JUCE ASIO support. See third-party notices for SDK license
+considerations.
 
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --target Ironvein_VST3 Ironvein_Standalone --parallel 2
-```
+## Next
 
-Or run `build-windows.bat`. JUCE is fetched from the fixed `8.0.16-security` tag at configure time. VST3 build output is in `build/Ironvein_artefacts/Release/VST3`. The repository also runs `ctest` on mathematical distortion tests in CI.
-
-## Distortion starting points (experimental, not vetted industry presets)
-
-| Name | Mode | Drive | Tight | Tone | Mix | Output |
-|---|---|---:|---:|---:|---:|---:|
-| A Little Bite | Warm | 4 dB | 45 Hz | 14 kHz | 25% | 0 dB |
-| Old-School Riff Crunch | Hard | 15 dB | 85 Hz | 9 kHz | 85% | -8 dB |
-| Tight Modern Rhythm | Razor | 25 dB | 130 Hz | 6.5 kHz | 100% | -12 dB |
-| Full Goblin Mode | Obliterate | 38 dB | 180 Hz | 4.5 kHz | 100% | -16 dB |
-
-These are examples only, **not yet loadable presets**.
-
-## Roadmap
-
-1. Plug-in validation and host compatibility tests, loudness/peak metering, UI refinement.
-2. Dynamic module rack with add/remove/reorder, saved chain layout and independent bypass.
-3. EQ, compressor, delay, reverb, cab impulse response support.
-4. Documented, testable preset library organized by Guitar, Bass, Drums, Mix, Master and Experimental.
-
-## Licensing
-
-JUCE is downloaded separately and governed by its own license. Choose an appropriate JUCE license before distribution or commercialization; third-party DSP and impulse response assets have their own terms. Project source currently has no separately granted redistributable license.
+Noise gate, signal meters and oversampling options; dynamic add/remove/reorder
+rack; EQ, compressor, delay, reverb; documented preset library.

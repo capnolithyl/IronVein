@@ -3,6 +3,41 @@
 
 namespace ironvein
 {
+namespace
+{
+struct Voicing
+{
+    float highPassHz;
+    float preBassHz;
+    float preMidHz;
+    float preBassAmount;
+    float midAmount;
+    float trebleAmount;
+    float postHighCutHz;
+    float postMidAmount;
+    float gainTrim;
+};
+
+constexpr Voicing voicings[] =
+{
+    // Raw black: fizzy treble emphasis, intentionally light bass.
+    { 300.0f, 420.0f, 2600.0f, -0.65f, 0.10f, 0.68f, 11800.0f, -0.18f, 0.54f },
+    // Swedish chainsaw: biting high mids and nasty dual-band emphasis.
+    {  90.0f, 490.0f, 2800.0f, -0.26f, 1.65f, 0.42f, 8500.0f, 0.55f, 0.43f },
+    // Old-school: open, forward low mids and less fizz.
+    {  65.0f, 550.0f, 2000.0f, 0.68f, 0.30f, -0.10f, 6200.0f, 0.10f, 0.77f },
+    // Death: focused attack, dense gain, controlled low end.
+    { 135.0f, 500.0f, 3200.0f, -0.15f, 0.85f, 0.24f, 7800.0f, 0.28f, 0.51f },
+    // Metalcore: tight pre-high-pass and bright attack, smoother after cab.
+    { 175.0f, 630.0f, 3900.0f, -0.35f, 0.52f, 0.80f, 7200.0f, 0.12f, 0.43f }
+};
+
+float coeff (double hz, double sr) noexcept
+{
+    return static_cast<float> (1.0 - std::exp (-juce::MathConstants<double>::twoPi * hz / sr));
+}
+}
+
 DistortionModule::DistortionModule (juce::AudioProcessorValueTreeState& state)
     : enabledParam (state.getRawParameterValue ("dist.enabled")),
       modeParam (state.getRawParameterValue ("dist.mode")),
@@ -21,8 +56,6 @@ void DistortionModule::prepare (double sampleRate, int maximumBlockSize, int cha
     currentSampleRate = sampleRate;
     maxBlock = juce::jmax (1, maximumBlockSize);
     channelCount = juce::jlimit (1, 2, channels);
-
-    // 2 is log2(4x). Integer latency permits sample-exact dry/wet delay alignment.
     oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
         static_cast<size_t> (channelCount), 2,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, true);
@@ -34,7 +67,7 @@ void DistortionModule::prepare (double sampleRate, int maximumBlockSize, int cha
                        std::vector<float> (static_cast<size_t> (latencySamples), 0.0f));
     dryWriteIndex = 0;
 
-    driveGain.reset (sampleRate * oversamplingFactor, 0.025);
+    driveGain.reset (sampleRate * oversamplingFactor, 0.02);
     driveGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (driveParam->load()));
     outputGain.reset (sampleRate, 0.025);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
@@ -52,6 +85,9 @@ void DistortionModule::reset()
     for (auto& channel : dryHistory)
         std::fill (channel.begin(), channel.end(), 0.0f);
     highPassLowState.fill (0.0f);
+    preBassState.fill (0.0f);
+    preMidState.fill (0.0f);
+    postMidState.fill (0.0f);
     lowPassState.fill (0.0f);
     dcInputState.fill (0.0f);
     dcOutputState.fill (0.0f);
@@ -67,12 +103,14 @@ void DistortionModule::process (juce::AudioBuffer<float>& audio)
     if (channels <= 0 || audio.getNumSamples() == 0)
         return;
 
-    const auto mode = juce::jlimit (0, 3, juce::roundToInt (modeParam->load()));
+    const auto mode = juce::jlimit (0, 4, juce::roundToInt (modeParam->load()));
+    const auto& voice = voicings[mode];
     const auto sampleRateOS = currentSampleRate * oversamplingFactor;
-    const auto tightHz = static_cast<double> (tightParam->load());
-    const auto toneHz = static_cast<double> (toneParam->load());
-    const auto hpCoefficient = static_cast<float> (1.0 - std::exp (-juce::MathConstants<double>::twoPi * tightHz / sampleRateOS));
-    const auto lpCoefficient = static_cast<float> (1.0 - std::exp (-juce::MathConstants<double>::twoPi * toneHz / sampleRateOS));
+    const auto hpCoefficient = coeff (juce::jmax (voice.highPassHz, tightParam->load()), sampleRateOS);
+    const auto bassCoefficient = coeff (voice.preBassHz, sampleRateOS);
+    const auto midCoefficient = coeff (voice.preMidHz, sampleRateOS);
+    const auto postCoefficient = coeff (1400.0, sampleRateOS);
+    const auto lpCoefficient = coeff (juce::jmin (voice.postHighCutHz, toneParam->load()), sampleRateOS);
     const auto dcPole = static_cast<float> (std::exp (-juce::MathConstants<double>::twoPi * 15.0 / sampleRateOS));
 
     driveGain.setTargetValue (juce::Decibels::decibelsToGain (driveParam->load()));
@@ -83,8 +121,6 @@ void DistortionModule::process (juce::AudioBuffer<float>& audio)
     for (int offset = 0; offset < audio.getNumSamples(); offset += maxBlock)
     {
         const auto numSamples = juce::jmin (maxBlock, audio.getNumSamples() - offset);
-
-        // Delays the unprocessed signal by the same sample latency as oversampling.
         for (int n = 0; n < numSamples; ++n)
         {
             for (int ch = 0; ch < channels; ++ch)
@@ -107,32 +143,47 @@ void DistortionModule::process (juce::AudioBuffer<float>& audio)
         auto upsampled = oversampling->processSamplesUp (wetBlock);
         const auto upsampledSamples = static_cast<int> (upsampled.getNumSamples());
 
-        // Advance drive once per oversampled frame so stereo channels track.
         for (int n = 0; n < upsampledSamples; ++n)
         {
-            const auto gain = driveGain.getNextValue();
+            const auto inputGain = driveGain.getNextValue();
             for (int ch = 0; ch < channels; ++ch)
             {
-                const auto x = upsampled.getSample (static_cast<size_t> (ch), static_cast<size_t> (n));
-                auto& hp = highPassLowState[static_cast<size_t> (ch)];
+                const auto i = static_cast<size_t> (ch);
+                const auto x = upsampled.getSample (i, static_cast<size_t> (n));
+                auto& hp = highPassLowState[i];
                 hp += hpCoefficient * (x - hp);
-                auto distorted = shapeSample ((x - hp) * gain, mode);
+                const auto highPassed = x - hp;
 
-                // Asymmetric clipping introduces DC; cancel it before tone filtering.
-                auto& dcIn = dcInputState[static_cast<size_t> (ch)];
-                auto& dcOut = dcOutputState[static_cast<size_t> (ch)];
-                const auto dcFiltered = distorted - dcIn + dcPole * dcOut;
-                dcIn = distorted;
+                auto& bassLow = preBassState[i];
+                auto& midLow = preMidState[i];
+                bassLow += bassCoefficient * (highPassed - bassLow);
+                midLow += midCoefficient * (highPassed - midLow);
+                const auto midBand = midLow - bassLow;
+                const auto treble = highPassed - midLow;
+
+                const auto preEmphasis = highPassed
+                                       + voice.preBassAmount * bassLow
+                                       + voice.midAmount * midBand
+                                       + voice.trebleAmount * treble;
+
+                auto shaped = shapeSample (inputGain * preEmphasis, mode);
+                auto& dcIn = dcInputState[i];
+                auto& dcOut = dcOutputState[i];
+                const auto dcFiltered = shaped - dcIn + dcPole * dcOut;
+                dcIn = shaped;
                 dcOut = dcFiltered;
 
-                auto& lp = lowPassState[static_cast<size_t> (ch)];
-                lp += lpCoefficient * (dcFiltered - lp);
-                upsampled.setSample (static_cast<size_t> (ch), static_cast<size_t> (n), lp);
+                auto& postMid = postMidState[i];
+                postMid += postCoefficient * (dcFiltered - postMid);
+                const auto boosted = dcFiltered + voice.postMidAmount * (dcFiltered - postMid);
+
+                auto& lp = lowPassState[i];
+                lp += lpCoefficient * (boosted - lp);
+                upsampled.setSample (i, static_cast<size_t> (n), voice.gainTrim * lp);
             }
         }
 
         oversampling->processSamplesDown (wetBlock);
-
         for (int n = 0; n < numSamples; ++n)
         {
             const auto wetAmount = mix.getNextValue();

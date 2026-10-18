@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "DSP/EffectRack.h"
 #include "DSP/DistortionModule.h"
+#include "DSP/CabinetModule.h"
 
 class IronveinAudioProcessor final : public juce::AudioProcessor
 {
@@ -29,10 +30,14 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    bool loadCustomCabinetIR (const juce::File& file);
+    juce::String getCustomCabinetName() const;
+
     juce::AudioProcessorValueTreeState parameters;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     ironvein::EffectRack rack;
+    ironvein::CabinetModule* cabinet = nullptr; // Owned by rack, stable for processor lifetime.
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IronveinAudioProcessor)
 };
