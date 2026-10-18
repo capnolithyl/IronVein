@@ -1,0 +1,57 @@
+name: Build Windows VST3
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-vst3:
+    name: VST3 + Standalone (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure JUCE and CMake
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+
+      - name: Build VST3, standalone and tests
+        run: cmake --build build --config Release --target Ironvein_VST3 Ironvein_Standalone ironvein_waveshaper_tests --parallel 2
+
+      - name: Run DSP smoke tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package installable Windows builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vst = 'build/Ironvein_artefacts/Release/VST3/IRONVEIN.vst3'
+          $standalone = 'build/Ironvein_artefacts/Release/Standalone/IRONVEIN.exe'
+          if (!(Test-Path $vst)) { throw "VST3 not found: $vst" }
+          if (!(Test-Path $standalone)) { throw "Standalone app not found: $standalone" }
+          New-Item -ItemType Directory -Force -Path dist/VST3,dist/Standalone | Out-Null
+          Copy-Item $vst -Destination 'dist/VST3/IRONVEIN.vst3' -Recurse -Force
+          Copy-Item $standalone -Destination 'dist/Standalone/IRONVEIN.exe' -Force
+          @'
+          INSTALLATION
+          1. Extract the GitHub Actions artifact ZIP.
+          2. Copy the whole VST3/IRONVEIN.vst3 directory into:
+             C:\Program Files\Common Files\VST3\
+          3. Restart/rescan your DAW's VST3 plug-ins.
+          Or run Standalone/IRONVEIN.exe for standalone audio testing.
+          This is an experimental development build.
+          '@ | Set-Content -Path dist/INSTALL.txt
+
+      - name: Upload Windows installers (portable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: IRONVEIN-Windows-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

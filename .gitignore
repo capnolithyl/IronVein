@@ -1,0 +1,25 @@
+# CMake and platform build outputs
+/build/
+/out/
+/cmake-build-*/
+/.vs/
+CMakeUserPresets.json
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Generated local binaries
+*.vst3
+*.dll
+*.exe
+*.pdb
+*.obj
+*.o
+*.a
+*.lib
+
+# Editors/OS
+.DS_Store
+Thumbs.db
+.vscode/
